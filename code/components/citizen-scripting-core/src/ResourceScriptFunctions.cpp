@@ -251,10 +251,9 @@ static InitFunction initFunction([] ()
 		}
 	});
 
+#ifdef IS_FXSERVER
 	fx::ScriptEngine::RegisterNativeHandler("ARE_ALL_RESOURCES_LOADED", [](fx::ScriptContext& context)
 	{
-#ifdef IS_FXSERVER
-		// Server-only native
 		fx::ResourceManager* resourceManager = fx::ResourceManager::GetCurrent();
 		auto resourceManagerImpl = dynamic_cast<fx::ResourceManagerImpl*>(resourceManager);
 
@@ -266,11 +265,8 @@ static InitFunction initFunction([] ()
 		{
 			context.SetResult(false);
 		}
-#else
-		// Always return false on client (not supported)
-		context.SetResult(false);
-#endif
 	});
+#endif
 
 	fx::ScriptEngine::RegisterNativeHandler("IS_ACE_ALLOWED", [](fx::ScriptContext& context)
 	{

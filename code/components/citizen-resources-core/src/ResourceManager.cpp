@@ -21,7 +21,6 @@ namespace fx
 {
 ResourceManagerImpl::ResourceManagerImpl()
 	: m_allResourcesLoadedEventFired(false)
-	, m_lastResourceStartTime(std::chrono::steady_clock::now())
 {
 	OnInitializeInstance(this);
 
@@ -282,49 +281,69 @@ void ResourceManager::SetCallRefCallback(const std::function<std::string(const s
 	g_callRefCallback = refCallback;
 }
 
-void ResourceManagerImpl::OnResourceStarted()
+bool ResourceManagerImpl::AreAllResourcesLoaded()
 {
-	m_lastResourceStartTime = std::chrono::steady_clock::now();
+	std::unique_lock<std::recursive_mutex> lock(m_resourcesMutex);
+
+	// Check if any resource is still in the Starting state
+	for (const auto& [name, resource] : m_resources)
+	{
+		if (resource->GetState() == ResourceState::Starting)
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 void ResourceManagerImpl::CheckAndFireResourcesReadyEvent()
 {
 	// If event already fired, nothing to do
 	// Note: This event fires only ONCE during server startup, not on resource restarts
-	if (m_allResourcesLoadedEventFired)
+	if (m_allResourcesLoadedEventFired.load())
 	{
 		return;
 	}
 
-	// Check if we have any resources at all
+	// Check if we have any resources at all and if all are loaded
 	bool hasResources = false;
+	bool allLoaded = false;
+
 	{
 		std::unique_lock<std::recursive_mutex> lock(m_resourcesMutex);
 		hasResources = !m_resources.empty();
-	}
 
-	if (!hasResources)
-	{
-		return;
-	}
-
-	// Check if enough time has passed since the last resource started
-	auto now = std::chrono::steady_clock::now();
-	auto timeSinceLastStart = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastResourceStartTime).count();
-
-	if (timeSinceLastStart >= STABILITY_DELAY_MS)
-	{
-		// Stability period has passed, fire the event
-		m_allResourcesLoadedEventFired = true;
-
-		trace("All server resources have finished loading!\n");
-
-		// Trigger the onServerResourcesReady event
-		auto evComponent = GetComponent<fx::ResourceEventManagerComponent>();
-		if (evComponent.GetRef())
+		if (hasResources)
 		{
-			evComponent->QueueEvent2("onServerResourcesReady", {});
-			evComponent->TriggerEvent2("onServerResourcesReady", {});
+			// Check if any resource is still starting
+			allLoaded = true;
+			for (const auto& [name, resource] : m_resources)
+			{
+				if (resource->GetState() == ResourceState::Starting)
+				{
+					allLoaded = false;
+					break;
+				}
+			}
+		}
+	}
+
+	// If we have resources and all are loaded, fire the event
+	if (hasResources && allLoaded)
+	{
+		// Use atomic compare_exchange to ensure event fires only once
+		bool expected = false;
+		if (m_allResourcesLoadedEventFired.compare_exchange_strong(expected, true))
+		{
+			trace("All server resources have finished loading!\n");
+
+			// Queue the onServerResourcesReady event (will be triggered on next tick)
+			auto evComponent = GetComponent<fx::ResourceEventManagerComponent>();
+			if (evComponent.GetRef())
+			{
+				evComponent->QueueEvent2("onServerResourcesReady", {});
+			}
 		}
 	}
 }

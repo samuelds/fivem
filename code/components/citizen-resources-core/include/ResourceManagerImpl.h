@@ -29,11 +29,7 @@ private:
 	std::vector<fwRefContainer<ResourceMounter>> m_mounters;
 
 	// Resources ready detection (fires once at server startup only)
-	bool m_allResourcesLoadedEventFired;
-
-	std::chrono::steady_clock::time_point m_lastResourceStartTime;
-
-	static constexpr int STABILITY_DELAY_MS = 2000; // 2 seconds of stability before firing event
+	std::atomic<bool> m_allResourcesLoadedEventFired;
 
 public:
 	ResourceManagerImpl();
@@ -63,9 +59,7 @@ public:
 	virtual std::string CallReferenceInternal(const std::string& functionReference, const std::string& argsSerialized) override;
 
 	// Resources ready detection
-	bool AreAllResourcesLoaded() const { return m_allResourcesLoadedEventFired; }
-
-	void OnResourceStarted();
+	bool AreAllResourcesLoaded();
 
 	void CheckAndFireResourcesReadyEvent();
 };
